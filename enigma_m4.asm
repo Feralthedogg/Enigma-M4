@@ -950,8 +950,8 @@ yaml_apply:
 
         # Allocate locals:
         #   136 bytes total = 32B shadow (kept unused) + YA_* area.
-        subq $136,%rsp
-        .seh_stackalloc 136
+        subq $152,%rsp
+        .seh_stackalloc 152
         .seh_endprologue
 
         # --------- Stash arguments in preserved registers ---------------------
@@ -1979,26 +1979,30 @@ yaml_apply:
         call  ref_setup_pairs
 2:
         # === Plugboard =========================================================
-        # Initialize to identity, then apply any parsed letter pairs.
         leaq  E_PB(%r12), %rcx
         call  plug_init
 
-        movl  YA_PCOUNT(%rsp), %r14d       # number of pairs parsed (0..10)
-        test  %r14d, %r14d
-        jz    .done_ok
+        movl  YA_PCOUNT(%rsp), %r14d        # pair_count (0..10)
+        leaq  YA_PAIRS(%rsp),  %rsi         # pairs base
+        xorl  %r11d, %r11d                  # i = 0
 
-        leaq  YA_PAIRS(%rsp), %r10         # base of 2-byte (a,b) pairs
-        xorl  %r11d, %r11d                 # current pair index
 .pb_loop:
-        # Apply one plugboard pair (a, b). (If multiple exist, iterate index.)
-        movzbl  (%r10,%r11,2),  %eax       # a = 0..25
-        movl    %eax, YA_TMP0(%rsp)
-        movzbl  1(%r10,%r11,2), %eax       # b = 0..25
-        movl    %eax, YA_TMP1(%rsp)
+        cmpl  %r14d, %r11d
+        jge   .pb_done
+
+        movzbl  (%rsi,%r11,2),  %edx        # a = 0..25
+        movzbl  1(%rsi,%r11,2), %r8d        # b = 0..25
         leaq    E_PB(%r12), %rcx
-        mov     YA_TMP0(%rsp), %edx        # RDX = a
-        mov     YA_TMP1(%rsp), %r8d        # R8  = b
-        call    plug_pair_idx              # PB[a] <-> PB[b]
+        call    plug_pair_idx
+
+        inc     %r11d
+        jmp     .pb_loop
+
+.pb_done:
+        movl  $0,(%r13)
+        mov   %rbx,%rcx
+        call  fclose
+        jmp   .ya_ret_ok
 
 .done_ok:
         # Success path: clear *errline, close file, return OK.
@@ -2032,7 +2036,7 @@ yaml_apply:
 
 .ya_ret_common:
         # Epilogue: restore non-volatile registers and return.
-        addq $136,%rsp
+        addq $152,%rsp
         pop  %rbp
         pop  %rsi
         pop  %rdi
